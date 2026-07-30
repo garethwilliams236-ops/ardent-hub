@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ardent Advisors — User Admin</title>
+  <style>
+    :root{
+      --navy:#0b1f3a;--navy-2:#0f2748;--ink:#0f172a;--paper:#f6f7f9;--card:#fff;
+      --line:#e6e9ef;--muted:#5b6576;--accent:#c8962e;--danger:#b3261e;--radius:14px;
+    }
+    *{box-sizing:border-box}html,body{margin:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--paper);min-height:100vh}
+    a{color:inherit}
+    header{background:linear-gradient(160deg,var(--navy),var(--navy-2));color:#fff;padding:24px}
+    .wrap{max-width:900px;margin:0 auto;width:100%}
+    .top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+    header h1{font-size:18px;margin:0;font-weight:700}
+    header .who{font-size:13px;color:#c3ccdb}
+    header a.back{color:#c3ccdb;font-size:13px;text-decoration:none}
+    main{padding:26px 24px 60px}
+    .tool{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px 18px 14px;margin-bottom:16px}
+    .tool h2{font-size:16px;margin:0 0 2px}
+    .tool .host{font-size:12.5px;color:#8792a6;margin-bottom:12px}
+    .members{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .row{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#f8fafc;border:1px solid #eef1f6;border-radius:9px;padding:7px 10px;font-size:14px}
+    .row .badge{font-size:11px;color:#166534;background:#dcfce7;border-radius:6px;padding:1px 7px;font-weight:700}
+    .row button{border:none;background:none;color:var(--danger);cursor:pointer;font-size:13px;font-weight:600}
+    .row button:disabled{color:#b8c0cd;cursor:default}
+    .add{display:flex;gap:8px}
+    .add input{flex:1;padding:8px 10px;border:1px solid #cbd5e1;border-radius:9px;font-size:14px}
+    .add button{border:none;background:var(--navy);color:#fff;border-radius:9px;padding:8px 16px;font-weight:650;cursor:pointer}
+    .add button:disabled{opacity:.5;cursor:default}
+    .empty{color:#8792a6;font-size:13px;padding:2px 0 8px}
+    .err{color:var(--danger);font-size:13px;margin-top:6px}
+    .gate{max-width:520px;margin:60px auto;text-align:center;color:var(--muted)}
+    .gate h2{color:var(--ink)}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap top">
+      <div>
+        <h1>User Admin</h1>
+        <div class="who" id="who">…</div>
+      </div>
+      <a class="back" href="/">← Back to tools</a>
+    </div>
+  </header>
+  <main class="wrap" id="main"><p style="color:#8792a6">Loading…</p></main>
+
+  <script>
+    const api = "/api/access";
+    const el = (id) => document.getElementById(id);
+
+    async function jget(url){const r=await fetch(url);return {ok:r.ok,data:await r.json().catch(()=>({}))};}
+    async function jsend(method,body){const r=await fetch(api,{method,headers:{"content-type":"application/json"},body:JSON.stringify(body)});return {ok:r.ok,data:await r.json().catch(()=>({}))};}
+
+    function gate(msg){
+      el("main").innerHTML = `<div class="gate"><h2>Not authorised</h2><p>${msg}</p></div>`;
+    }
+
+    function render(tools){
+      el("main").innerHTML = tools.map((t)=>`
+        <div class="tool" data-key="${t.key}">
+          <h2>${t.label}</h2>
+          <div class="host">${(t.url||"").replace(/^https?:\/\//,"")}</div>
+          <div class="members">
+            ${t.members.length? t.members.map((m)=>`
+              <div class="row">
+                <span>${m}${window.__admins.includes(m)?' <span class="badge">admin</span>':''}</span>
+                <button ${window.__admins.includes(m)?'disabled title="Seeded admin"':''} onclick="removeUser('${t.key}','${m}')">Remove</button>
+              </div>`).join("") : '<div class="empty">No users yet.</div>'}
+          </div>
+          <div class="add">
+            <input type="email" placeholder="name@company.com" id="in-${t.key}" />
+            <button onclick="addUser('${t.key}')">Add</button>
+          </div>
+          <div class="err" id="err-${t.key}"></div>
+        </div>`).join("");
+    }
+
+    async function refresh(){
+      const {ok,data} = await jget(api);
+      if(!ok){ gate(data.error||"Admin access required."); return; }
+      render(data.tools);
+    }
+
+    window.addUser = async (key)=>{
+      const input = el("in-"+key); const email = input.value.trim();
+      el("err-"+key).textContent = "";
+      if(!email) return;
+      const {ok,data} = await jsend("POST",{tool:key,email});
+      if(!ok){ el("err-"+key).textContent = data.error||"Could not add."; return; }
+      input.value=""; refresh();
+    };
+    window.removeUser = async (key,email)=>{
+      el("err-"+key).textContent = "";
+      const {ok,data} = await jsend("DELETE",{tool:key,email});
+      if(!ok){ el("err-"+key).textContent = data.error||"Could not remove."; return; }
+      refresh();
+    };
+
+    (async ()=>{
+      const {data} = await jget(api+"?q=whoami");
+      el("who").textContent = data.email ? `Signed in as ${data.email}` : "Not signed in";
+      window.__admins = []; // filled from server-side check via badge? kept minimal
+      if(!data.isAdmin){ gate("This panel is limited to Ardent administrators."); return; }
+      // Fetch admin list indirectly: seeded admins are flagged by the server in future;
+      // for now mark the current admin.
+      window.__admins = [data.email.toLowerCase()];
+      refresh();
+    })();
+  </script>
+</body>
+</html>
